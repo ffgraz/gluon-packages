@@ -3,9 +3,9 @@ include $(TOPDIR)/rules.mk
 PKG_NAME:=libbabelhelper
 
 PKG_SOURCE_PROTO:=git
-PKG_SOURCE_URL:=https://github.com/christf/libbabelhelper.git
-PKG_SOURCE_DATE:=2019-08-14
-PKG_SOURCE_VERSION:=9301ea3270319abde554858b8721bbe7152f00d6
+PKG_SOURCE_URL:=https://github.com/ffgraz/libbabelhelper.git
+PKG_SOURCE_DATE:=2026-08-24
+PKG_SOURCE_VERSION:=5705edc96206b16b42fdf2a15d48f29a433a9549
 
 CMAKE_INSTALL:=1
 
