@@ -1,27 +1,5 @@
-/*
-  Copyright (c) 2017, Jan-Philipp Litza <janphilipp@litza.de>
-  All rights reserved.
-
-  Redistribution and use in source and binary forms, with or without
-  modification, are permitted provided that the following conditions are met:
-
-    1. Redistributions of source code must retain the above copyright notice,
-       this list of conditions and the following disclaimer.
-    2. Redistributions in binary form must reproduce the above copyright notice,
-       this list of conditions and the following disclaimer in the documentation
-       and/or other materials provided with the distribution.
-
-  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-  AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-  IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-  DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
-  FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
-  DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
-  SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
-  CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
-  OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-  OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-*/
+// SPDX-License-Identifier: BSD-2-Clause
+// SPDX-FileCopyrightText: 2017 Jan-Philipp Litza <janphilipp@litza.de>
 
 
 #include "uclient.h"
@@ -31,6 +9,8 @@
 
 #include <limits.h>
 #include <stdio.h>
+#include <string.h>
+#include <glob.h>
 
 
 #define TIMEOUT_MSEC 300000
@@ -65,6 +45,12 @@ const char *uclient_get_errmsg(int code) {
 		return "Connection failed";
 	case UCLIENT_ERROR_TIMEDOUT:
 		return "Connection timed out";
+	case UCLIENT_ERROR_SSL_INVALID_CERT:
+		return "Invalid SSL certificate";
+	case UCLIENT_ERROR_SSL_CN_MISMATCH:
+		return "SSL certificate CN mismatch";
+	case UCLIENT_ERROR_MISSING_SSL_CONTEXT:
+		return "Missing SSL context";
 	case UCLIENT_ERROR_REDIRECT_FAILED:
 		return "Failed to redirect";
 	case UCLIENT_ERROR_TOO_MANY_REDIRECTS:
@@ -173,10 +159,29 @@ int get_url(const char *url, void (*read_cb)(struct uclient *cl), void *cb_data,
 		.error = request_done,
 	};
 	int ret = UCLIENT_ERROR_CONNECT;
+	struct ustream_ssl_ctx *ssl_ctx = NULL;
+	const struct ustream_ssl_ops *ssl_ops = NULL;
 
 	struct uclient *cl = uclient_new(url, NULL, &cb);
 	if (!cl)
 		goto err;
+
+	ssl_ctx = uclient_new_ssl_context(&ssl_ops);
+	if (ssl_ctx) {
+		glob_t gl = {0};
+		unsigned int i;
+
+		if (glob("/etc/ssl/certs/*.crt", 0, NULL, &gl) == 0) {
+			for (i = 0; i < gl.gl_pathc; i++)
+				ssl_ops->context_add_ca_crt_file(ssl_ctx, gl.gl_pathv[i]);
+			globfree(&gl);
+		}
+
+		uclient_http_set_ssl_ctx(cl, ssl_ops, ssl_ctx, true);
+	} else if (!strncmp(url, "https://", strlen("https://"))) {
+		ret = UCLIENT_ERROR_MISSING_SSL_CONTEXT;
+		goto err;
+	}
 
 	cl->priv = &d;
 	if (uclient_set_timeout(cl, TIMEOUT_MSEC))
@@ -215,6 +220,8 @@ err:
 		uclient_disconnect(cl);
 		uclient_free(cl);
 	}
+	if (ssl_ctx)
+		ssl_ops->context_free(ssl_ctx);
 
 	return ret;
 }
