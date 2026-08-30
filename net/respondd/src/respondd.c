@@ -133,15 +133,53 @@ static void update_time(void) {
 }
 
 
+/** Whether an array already holds an entry equal to val */
+static bool array_contains(struct json_object *array, struct json_object *val) {
+	size_t len = json_object_array_length(array);
+
+	for (size_t i = 0; i < len; i++) {
+		if (json_object_equal(json_object_array_get_idx(array, i), val))
+			return true;
+	}
+
+	return false;
+}
+
+/**
+ * Merges two JSON arrays
+ *
+ * Every entry of a that b does not hold yet is appended to b. Providers
+ * that answer the same query contribute to the same list - the mesh
+ * daemons on a layer-3 node each know some of the node's addresses -
+ * and dropping one side would lose whatever only that one knew.
+ */
+static struct json_object * merge_json_array(struct json_object *a, struct json_object *b) {
+	size_t len = json_object_array_length(a);
+
+	for (size_t i = 0; i < len; i++) {
+		struct json_object *val = json_object_array_get_idx(a, i);
+
+		if (!array_contains(b, val))
+			json_object_array_add(b, json_object_get(val));
+	}
+
+	json_object_put(a);
+	return b;
+}
+
 /**
  * Merges two JSON objects
  *
- * On conflicts, object a will be preferred.
+ * On conflicts, object a will be preferred; arrays on both sides are
+ * concatenated rather than one of them being dropped.
  *
  * Internally, this functions merges all entries from object a into object b,
  * so merging a small object a with a big object b is faster than vice-versa.
  */
 static struct json_object * merge_json(struct json_object *a, struct json_object *b) {
+	if (json_object_is_type(a, json_type_array) && json_object_is_type(b, json_type_array))
+		return merge_json_array(a, b);
+
 	if (!json_object_is_type(a, json_type_object) || !json_object_is_type(b, json_type_object)) {
 		json_object_put(b);
 		return a;
